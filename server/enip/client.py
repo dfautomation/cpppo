@@ -904,6 +904,24 @@ class client( object ):
                 request=req, route_path=route_path, send_path=send_path, timeout=timeout,
                 sender_context=sender_context, **kwds )
         return req
+    
+    def change_nx_state( self, path, data, elements=1, tag_type=None,
+              route_path=None, send_path=None, timeout=None, send=True,
+              priority_time_tick=None, timeout_ticks=None,
+              sender_context=b'' ):
+        # If a tag_type has been specified, then we need to convert the data to SINT/USINT.
+        req			= cpppo.dotdict()
+        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path ) ]}
+        req.change_nx_state= {
+            'data':		data,
+            'elements':		elements,
+        }
+        if send:
+            self.unconnected_send(
+                request=req, route_path=route_path, send_path=send_path, timeout=timeout,
+                priority_time_tick=priority_time_tick, timeout_ticks=timeout_ticks,
+                sender_context=sender_context )
+        return req
 
     def read( self, path, elements=1, offset=0,
               route_path=None, send_path=None, timeout=None, send=True,
@@ -1373,6 +1391,12 @@ class connector( client ):
                         tag_type=op.get( 'tag_type' ) or parser.DINT.tag_type, size=op.get( 'elements', 1 ))
                 else:
                     rpyest	= multiple
+            elif method == 'change_nx_state':
+                descr	       += "C_N_S "
+                req		= self.change_nx_state( timeout=timeout, send=not multiple, **op )
+                reqest		= 8 + parser.typed_data.datasize(
+                    tag_type=op.get( 'tag_type' ) or parser.USINT.tag_type, size=len( op['data'] ))
+                rpyest		= 4
             elif method == "service_code":
                 req		= self.service_code( timeout=timeout, send=not multiple, **op )
                 reqest		= 1 + len( req.input ) # We've rendered the Service Request payload
@@ -1492,20 +1516,27 @@ class connector( client ):
                     len( replies ), ctx, parser.enip_format( response ))
 
             for reply in replies:
-                val		= None
-                sts		= reply.status			# sts = # or (#,[#...])
-                # Success or read w/ Partial Data; val is Truthy
-                if reply.status in (0x00,0x06) and 'read_frag' in reply:
-                    val		= reply.read_frag.data
-                elif reply.status in (0x00,0x06) and 'read_tag' in reply:
-                    val		= reply.read_tag.data
-                elif reply.status in (0x00,0x06) and 'get_attribute_single' in reply:
-                    val		= reply.get_attribute_single.data
-                elif reply.status in (0x00,0x06) and 'get_attributes_all' in reply:
-                    val		= reply.get_attributes_all.data
-                elif reply.status in (0x00,):
-                    # eg. 'set_attribute_single', 'write_{tag,frag}', 'service_code', etc...
-                    val		= True
+                val	= None
+                sts	= reply.status			# sts = # or (#,[#...])
+                if reply.status in (0x00,0x06):		# Success or Partial Data; val is Truthy
+                    if 'read_frag' in reply:
+                        val	= reply.read_frag.data
+                    elif 'read_tag' in reply:
+                        val	= reply.read_tag.data
+                    elif 'set_attribute_single' in reply:
+                        val	= True
+                    elif 'get_attribute_single' in reply:
+                        val	= reply.get_attribute_single.data
+                    elif 'get_attributes_all' in reply:
+                        val	= reply.get_attributes_all.data
+                    elif 'change_nx_state' in reply:
+                        val	= reply.change_nx_state
+                    elif 'write_frag' in reply:
+                        val	= True
+                    elif 'write_tag' in reply:
+                        val	= True
+                    else:
+                        raise Exception( "Reply Unrecognized: %s" % ( parser.enip_format( reply )))
                 else:					# Failure; val is Falsey
                     if 'status_ext' in reply and reply.status_ext.size:
                         sts	= (reply.status,reply.status_ext.data)
