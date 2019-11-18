@@ -734,6 +734,10 @@ class Object( object ):
     SA_SNG_CTX			= "set_attribute_single"
     SA_SNG_REQ			= 0x10
     SA_SNG_RPY			= SA_SNG_REQ | 0x80
+    CHG_NX_NAM			= "Change NX State"
+    CHG_NX_CTX			= "change_nx_state"
+    CHG_NX_REQ			= 0x39
+    CHG_NX_RPY			= CHG_NX_REQ | 0x80
 
     @property
     def config( self ):
@@ -857,6 +861,9 @@ class Object( object ):
             elif ( data.get( 'service' ) == self.SA_SNG_REQ
                  or self.SA_SNG_CTX in data and data.setdefault( 'service', self.SA_SNG_REQ ) == self.SA_SNG_REQ ):
                 pass
+            elif ( data.get( 'service' ) == self.CHG_NX_REQ
+                 or self.CHG_NX_CTX in data and data.setdefault( 'service', self.CHG_NX_REQ ) == self.CHG_NX_REQ ):
+                pass
             else:
                 raise RequestUnrecognized( "Unrecognized Service Request" )
 
@@ -950,6 +957,13 @@ class Object( object ):
             result	       += EPATH.produce(	data.path )
             result	       += typed_data.produce(	data.set_attribute_single,
                                                         tag_type=USINT.tag_type )
+        elif ( data.get( 'service' ) == cls.CHG_NX_REQ
+               or cls.CHG_NX_CTX in data and data.setdefault( 'service', cls.CHG_NX_REQ ) == cls.CHG_NX_REQ ):
+            # Change NX State
+            result	       += USINT.produce(	data.service )
+            result	       += EPATH.produce(	data.path )
+            result	       += typed_data.produce(	data.change_nx_state,
+                                                        tag_type=USINT.tag_type )
         elif data.get( 'service' ) == cls.GA_ALL_RPY:
             # Get Attributes All Reply
             result	       += USINT.produce(	data.service )
@@ -968,6 +982,11 @@ class Object( object ):
                                                         tag_type=USINT.tag_type )
         elif data.get( 'service' ) == cls.SA_SNG_RPY:
             # Set Attribute Single Reply
+            result	       += USINT.produce(	data.service )
+            result	       += b'\x00' # reserved
+            result	       += status.produce( 	data )
+        elif data.get( 'service' ) == cls.CHG_NX_RPY:
+            # Change NX State Reply
             result	       += USINT.produce(	data.service )
             result	       += b'\x00' # reserved
             result	       += status.produce( 	data )
@@ -1047,6 +1066,40 @@ def __set_attribute_single_reply():
 
 Object.register_service_parser( number=Object.SA_SNG_RPY, name=Object.SA_SNG_NAM + " Reply", 
                                 short=Object.SA_SNG_CTX, machine=__set_attribute_single_reply() )
+
+
+# additional change NX state 
+
+def __change_nx_state():
+    srvc			= USINT(		 	context='service' )
+    srvc[True]		= path	= EPATH(			context='path')
+    path[True]			= typed_data( 			context=Object.CHG_NX_CTX,
+                                                tag_type=USINT.tag_type,
+                                                terminal=True )
+    return srvc
+
+Object.register_service_parser( number=Object.CHG_NX_REQ, name=Object.CHG_NX_NAM, 
+                                short=Object.CHG_NX_CTX, machine=__change_nx_state() )
+
+def __change_nx_state_reply():
+    srvc			= USINT(		 	context='service' )
+    srvc[True]	 	= rsvd	= octets_drop(	'reserved',	repeat=1 )
+    rsvd[True]		= stts	= status()
+    stts[None]		= mark	= octets_noop(			context=Object.CHG_NX_CTX,
+                                                terminal=True )
+    mark.initial[None]		= move_if( 	'mark',		initializer=True )
+    return srvc
+
+Object.register_service_parser( number=Object.CHG_NX_RPY, name=Object.CHG_NX_NAM + " Reply", 
+                                short=Object.CHG_NX_CTX, machine=__change_nx_state_reply() )
+
+
+
+
+
+
+
+
 
 
 class Identity( Object ):

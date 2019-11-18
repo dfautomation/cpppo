@@ -704,6 +704,24 @@ class client( object ):
                 priority_time_tick=priority_time_tick, timeout_ticks=timeout_ticks,
                 sender_context=sender_context )
         return req
+    
+    def change_nx_state( self, path, data, elements=1, tag_type=None,
+              route_path=None, send_path=None, timeout=None, send=True,
+              priority_time_tick=None, timeout_ticks=None,
+              sender_context=b'' ):
+        # If a tag_type has been specified, then we need to convert the data to SINT/USINT.
+        req			= cpppo.dotdict()
+        req.path		= { 'segment': [ cpppo.dotdict( d ) for d in parse_path( path ) ]}
+        req.change_nx_state= {
+            'data':		data,
+            'elements':		elements,
+        }
+        if send:
+            self.unconnected_send(
+                request=req, route_path=route_path, send_path=send_path, timeout=timeout,
+                priority_time_tick=priority_time_tick, timeout_ticks=timeout_ticks,
+                sender_context=sender_context )
+        return req
 
     def read( self, path, elements=1, offset=0,
               route_path=None, send_path=None, timeout=None, send=True,
@@ -1065,6 +1083,12 @@ class connector( client ):
                         tag_type=op.get( 'tag_type' ) or parser.DINT.tag_type, size=op.get( 'elements', 1 ))
                 else:
                     rpyest	= multiple # Completely unknown; prevent merging...
+            elif method == 'change_nx_state':
+                descr	       += "C_N_S "
+                req		= self.change_nx_state( timeout=timeout, send=not multiple, **op )
+                reqest		= 8 + parser.typed_data.datasize(
+                    tag_type=op.get( 'tag_type' ) or parser.USINT.tag_type, size=len( op['data'] ))
+                rpyest		= 4
             else:
                 log.detail( "Unrecognized operation method %s: %r", method, op )
             elapsed		= cpppo.timer() - begun
@@ -1196,6 +1220,8 @@ class connector( client ):
                         val	= reply.get_attribute_single.data
                     elif 'get_attributes_all' in reply:
                         val	= reply.get_attributes_all.data
+                    elif 'change_nx_state' in reply:
+                        val	= reply.change_nx_state
                     elif 'write_frag' in reply:
                         val	= True
                     elif 'write_tag' in reply:
